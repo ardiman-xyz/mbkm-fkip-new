@@ -489,7 +489,6 @@ class DashboardService
     private function clearCacheByPattern(string $pattern): void
     {
         try {
-            // For Redis cache
             if (Cache::getStore() instanceof \Illuminate\Cache\RedisStore) {
                 $redis = Cache::getStore()->getRedis();
                 $keys = $redis->keys($pattern);
@@ -497,9 +496,7 @@ class DashboardService
                     $redis->del($keys);
                 }
             }
-            // For other cache stores, this would need different implementation
         } catch (\Exception $e) {
-            // Fallback: if pattern clearing fails, just log it
             Log::warning('Cache pattern clear failed: ' . $e->getMessage());
         }
     }
