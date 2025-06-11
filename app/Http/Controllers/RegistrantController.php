@@ -66,9 +66,9 @@ class RegistrantController extends Controller
      */
     public function show(Registration $registrant): Response
     {
-        // $data = $this->registrantService->getRegistrantDetail($registrant);
+        $data = $this->registrantService->getRegistrantDetail($registrant);
 
-        return Inertia::render('registrants/show');
+        return Inertia::render('registrants/show', compact("data"));
     }
 
     /**

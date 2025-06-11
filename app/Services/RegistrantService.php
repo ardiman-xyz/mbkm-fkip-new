@@ -28,6 +28,7 @@ class RegistrantService
         $activityType = $request->get('activity_type', 'all');
         $academicYear = $request->get('academic_year', 'all');
         $semester = $request->get('semester', 'all');
+        $prodi = $request->get('prodi', 'all');
 
         $query = Registration::with(['student'])
             ->when($search, function ($q) use ($search) {
@@ -89,6 +90,7 @@ class RegistrantService
                 'academic_years' => $this->getAcademicYears(),
                 'semesters' => $this->getSemesters(),
                 'statuses' => $this->getStatuses(),
+                'prodis' => $this->getStudyPrograms(),
             ]
         ];
     }
@@ -127,9 +129,9 @@ class RegistrantService
     public function getRegistrantDetail(Registration $registrant): array
     {
         $registrant->load(['student', 'logbooks' => function ($query) {
-            $query->orderBy('minggu', 'desc')->orderBy('tgl_kegiatan', 'desc');
+            $query->orderBy('mingguKe', 'desc')->orderBy('tgl_kegiatan', 'desc');
         }]);
-
+    
         return [
             'registrant' => $this->transformRegistrant($registrant, true),
             'logbooks' => $registrant->logbooks->map(function ($logbook) {
@@ -138,7 +140,6 @@ class RegistrantService
             'statistics' => $this->getRegistrantStatistics($registrant),
         ];
     }
-
     /**
      * Get data for edit form
      */
@@ -404,23 +405,55 @@ class RegistrantService
     /**
      * Transform logbook data
      */
-    private function transformLogbook(Logbook $logbook): array
+        private function transformLogbook(Logbook $logbook): array
     {
+        // Handle tanggal dengan safety check
+        $activityDate = null;
+        $activityDateFormatted = null;
+        $createdAt = null;
+        
+        try {
+            if ($logbook->tgl_kegiatan) {
+                if ($logbook->tgl_kegiatan instanceof \Carbon\Carbon) {
+                    $activityDate = $logbook->tgl_kegiatan->format('Y-m-d');
+                    $activityDateFormatted = $logbook->tgl_kegiatan->format('d F Y');
+                } else {
+                    $activityDate = $logbook->tgl_kegiatan;
+                    $activityDateFormatted = $logbook->tgl_kegiatan;
+                }
+            }
+        } catch (\Exception $e) {
+            $activityDate = $logbook->tgl_kegiatan ?? null;
+            $activityDateFormatted = $logbook->tgl_kegiatan ?? 'Invalid Date';
+        }
+
+        // Handle created_at
+        try {
+            if ($logbook->date_created) {
+                if ($logbook->date_created instanceof \Carbon\Carbon) {
+                    $createdAt = $logbook->date_created->format('Y-m-d H:i:s');
+                } else {
+                    $createdAt = $logbook->date_created; // Jika string, gunakan langsung
+                }
+            }
+        } catch (\Exception $e) {
+            $createdAt = $logbook->date_created ?? null;
+        }
+
         return [
             'id' => $logbook->id,
-            'week' => $logbook->minggu,
-            'activity_date' => $logbook->tgl_kegiatan?->format('Y-m-d'),
-            'activity_date_formatted' => $logbook->tgl_kegiatan?->format('d F Y'),
+            'week' => $logbook->minggu_ke,
+            'activity_date' => $activityDate,
+            'activity_date_formatted' => $activityDateFormatted,
             'activity_name' => $logbook->nama_kegiatan,
             'activity_objective' => $logbook->tujuan_kegiatan,
             'notes' => $logbook->catatan,
             'conclusion' => $logbook->kesimpulan,
             'completion_status' => $logbook->completion_status,
             'completion_percentage' => $logbook->completion_percentage,
-            'created_at' => $logbook->date_created?->format('Y-m-d H:i:s'),
+            'created_at' => $createdAt,
         ];
     }
-
     /**
      * Get registrant statistics
      */
@@ -428,14 +461,30 @@ class RegistrantService
     {
         $logbooks = $registrant->logbooks;
         
+        // Handle last activity date with safety check
+        $lastActivityDate = null;
+        try {
+            $maxDate = $logbooks->max('tgl_kegiatan');
+            if ($maxDate) {
+                if ($maxDate instanceof \Carbon\Carbon) {
+                    $lastActivityDate = $maxDate->format('Y-m-d');
+                } else {
+                    // Jika string, gunakan langsung atau coba parse
+                    $lastActivityDate = $maxDate;
+                }
+            }
+        } catch (\Exception $e) {
+            $lastActivityDate = null;
+        }
+        
         return [
             'total_logbooks' => $logbooks->count(),
             'completed_logbooks' => $logbooks->where('completion_percentage', 100)->count(),
-            'partial_logbooks' => $logbooks->where('completion_percentage', '>', 0)->where('completion_percentage', '<', 100)->count(),
+            'partial_logbooks' => $logbooks->whereBetween('completion_percentage', [1, 99])->count(),
             'incomplete_logbooks' => $logbooks->where('completion_percentage', 0)->count(),
             'average_completion' => $logbooks->avg('completion_percentage') ?? 0,
-            'total_weeks' => $logbooks->max('minggu') ?? 0,
-            'last_activity_date' => $logbooks->max('tgl_kegiatan')?->format('Y-m-d'),
+            'total_weeks' => $logbooks->max('minggu_ke') ?? 0, // ubah dari 'minggu' ke 'minggu_ke'
+            'last_activity_date' => $lastActivityDate,
         ];
     }
 
@@ -655,20 +704,49 @@ class RegistrantService
         ];
     }
 
+    /**
+     * Get study programs from database
+     */
     private function getStudyPrograms(): array
     {
-        return [
-            ['value' => 1, 'label' => 'Pendidikan Bahasa Indonesia'],
-            ['value' => 2, 'label' => 'Pendidikan Matematika'],
-            ['value' => 3, 'label' => 'Pendidikan Fisika'],
-            ['value' => 4, 'label' => 'Pendidikan Biologi'],
-            ['value' => 5, 'label' => 'Pendidikan Kimia'],
-            ['value' => 6, 'label' => 'Pendidikan Bahasa Inggris'],
-            ['value' => 7, 'label' => 'Pendidikan Sejarah'],
-            ['value' => 8, 'label' => 'Pendidikan Geografi'],
-            ['value' => 9, 'label' => 'Pendidikan Olahraga'],
-            ['value' => 10, 'label' => 'Pendidikan Seni'],
-        ];
+        return Cache::remember(self::CACHE_PREFIX . 'study_programs', self::CACHE_TTL * 4, function () {
+            // Ambil data dari tabel prodi
+            $prodis = DB::table('prodi')
+                ->select('id_prodi', 'nama_prodi')
+                ->where('status', 'A') // Hanya yang aktif
+                ->orderBy('nama_prodi')
+                ->get();
+
+            // Transform ke format yang dibutuhkan
+            $prodiOptions = $prodis->map(function ($prodi) {
+                return [
+                    'value' => $prodi->id_prodi,
+                    'label' => $prodi->nama_prodi
+                ];
+            })->toArray();
+
+            // Tambahkan option "Semua Program Studi" di awal
+            array_unshift($prodiOptions, [
+                'value' => 'all',
+                'label' => 'Semua Program Studi'
+            ]);
+
+            return $prodiOptions;
+        });
+    }
+
+    /**
+     * Get study program name by ID from database
+     */
+    private function getStudyProgramName($prodiId): string
+    {
+        return Cache::remember(self::CACHE_PREFIX . "study_program_{$prodiId}", self::CACHE_TTL * 4, function () use ($prodiId) {
+            $prodi = DB::table('prodi')
+                ->where('id_prodi', $prodiId)
+                ->first();
+
+            return $prodi ? $prodi->nama_prodi : 'Program Studi Tidak Dikenal';
+        });
     }
 
     /**
@@ -701,23 +779,6 @@ class RegistrantService
         }
     }
 
-    private function getStudyProgramName(int $prodiId): string
-    {
-        $prodiMapping = [
-            1 => 'Pendidikan Bahasa Indonesia',
-            2 => 'Pendidikan Matematika',
-            3 => 'Pendidikan Fisika',
-            4 => 'Pendidikan Biologi',
-            5 => 'Pendidikan Kimia',
-            6 => 'Pendidikan Bahasa Inggris',
-            7 => 'Pendidikan Sejarah',
-            8 => 'Pendidikan Geografi',
-            9 => 'Pendidikan Olahraga',
-            10 => 'Pendidikan Seni',
-        ];
-
-        return $prodiMapping[$prodiId] ?? 'Unknown Study Program';
-    }
 
     private function getGenderFromStudent(Registration $registration): string
     {

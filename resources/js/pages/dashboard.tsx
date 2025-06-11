@@ -51,9 +51,11 @@ interface Filters {
     academic_years: FilterOption[];
     placements: FilterOption[];
     semesters: FilterOption[];
+    prodis: FilterOption[];
     current_academic_year: string;
     current_placement: string;
     current_semester: string;
+    current_prodi: string;
 }
 
 interface PaginationData {
@@ -75,6 +77,8 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ students, statistics, filters }: DashboardProps) {
+    console.info(filters);
+
     const [searchTerm, setSearchTerm] = useState('');
 
     const { isLoading, handlePageChange, handlePerPageChange, handleFilterChange } = usePagination({
@@ -113,18 +117,10 @@ export default function Dashboard({ students, statistics, filters }: DashboardPr
             academic_year: 'all',
             semester: 'all',
             placement: 'all',
+            prodi: 'all', // Tambah reset prodi filter
             search: '',
         });
     };
-
-    // Filter students based on search term (client-side for demo)
-    const filteredStudents = students.data.filter(
-        (student) =>
-            student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            student.nim.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            student.placement.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            student.study_program.toLowerCase().includes(searchTerm.toLowerCase()),
-    );
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>

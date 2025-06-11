@@ -7,6 +7,7 @@ use App\Models\Registration;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DashboardService
@@ -16,184 +17,238 @@ class DashboardService
     /**
      * Get dashboard data with filters and pagination
      */
-    public function getDashboardData(Request $request): array
-    {
-        $academicYearFilter = $request->get('academic_year', 'all');
-        $placementFilter = $request->get('placement', 'all');
-        $semesterFilter = $request->get('semester', 'all');
-        $searchTerm = $request->get('search', '') ?? ''; // Handle null case
-        $perPage = $request->get('per_page', 15);
-        $page = $request->get('page', 1);
 
-        // Create cache key based on all parameters
-        $cacheKey = $this->generateCacheKey('dashboard_data', [
-            'academic_year' => $academicYearFilter,
-            'placement' => $placementFilter,
-            'semester' => $semesterFilter,
-            'search' => $searchTerm,
-            'per_page' => $perPage,
-            'page' => $page
-        ]);
+     public function getDashboardData(Request $request): array
+        {
+            $academicYearFilter = $request->get('academic_year', 'all');
+            $placementFilter = $request->get('placement', 'all');
+            $semesterFilter = $request->get('semester', 'all');
+            $prodiFilter = $request->get('prodi', 'all'); // Tambah filter prodi
+            $searchTerm = $request->get('search', '') ?? ''; // Handle null case
+            $perPage = $request->get('per_page', 15);
+            $page = $request->get('page', 1);
 
-        return Cache::remember($cacheKey, self::CACHE_TTL, function () use (
-            $academicYearFilter, $placementFilter, $semesterFilter, $searchTerm, $perPage, $page
-        ) {
-            // Get paginated students from database
-            $students = $this->getPaginatedStudents(
-                $academicYearFilter, 
-                $placementFilter, 
-                $semesterFilter, 
-                $searchTerm,
-                $perPage,
-                $page
-            );
+            // Create cache key based on all parameters including prodi
+            $cacheKey = $this->generateCacheKey('dashboard_data', [
+                'academic_year' => $academicYearFilter,
+                'placement' => $placementFilter,
+                'semester' => $semesterFilter,
+                'prodi' => $prodiFilter,
+                'search' => $searchTerm,
+                'per_page' => $perPage,
+                'page' => $page
+            ]);
 
-            // Calculate statistics from all data (not just current page)
-            $allStudents = $this->getFilteredStudents($academicYearFilter, $placementFilter, $semesterFilter, $searchTerm);
-            $statistics = $this->calculateStatistics($allStudents);
-            $filterOptions = $this->getFilterOptions();
+            return Cache::remember($cacheKey, self::CACHE_TTL, function () use (
+                $academicYearFilter, $placementFilter, $semesterFilter, $prodiFilter, $searchTerm, $perPage, $page
+            ) {
+                // Get paginated students from database
+                $students = $this->getPaginatedStudents(
+                    $academicYearFilter, 
+                    $placementFilter, 
+                    $semesterFilter,
+                    $prodiFilter, 
+                    $searchTerm,
+                    $perPage,
+                    $page
+                );
 
-            return [
-                'students' => [
-                    'data' => $students->items(),
-                    'pagination' => [
-                        'current_page' => $students->currentPage(),
-                        'last_page' => $students->lastPage(),
-                        'per_page' => $students->perPage(),
-                        'total' => $students->total(),
-                        'from' => $students->firstItem(),
-                        'to' => $students->lastItem(),
+                // Calculate statistics from all data (not just current page)
+                $allStudents = $this->getFilteredStudents($academicYearFilter, $placementFilter, $semesterFilter, $prodiFilter, $searchTerm);
+                $statistics = $this->calculateStatistics($allStudents);
+                $filterOptions = $this->getFilterOptions();
+
+                return [
+                    'students' => [
+                        'data' => $students->items(),
+                        'pagination' => [
+                            'current_page' => $students->currentPage(),
+                            'last_page' => $students->lastPage(),
+                            'per_page' => $students->perPage(),
+                            'total' => $students->total(),
+                            'from' => $students->firstItem(),
+                            'to' => $students->lastItem(),
+                        ]
+                    ],
+                    'statistics' => $statistics,
+                    'filters' => [
+                        'academic_years' => $filterOptions['academic_years'],
+                        'placements' => $filterOptions['placements'],
+                        'semesters' => $filterOptions['semesters'],
+                        'prodis' => $filterOptions['prodis'], // Tambah prodi options
+                        'current_academic_year' => $academicYearFilter,
+                        'current_placement' => $placementFilter,
+                        'current_semester' => $semesterFilter,
+                        'current_prodi' => $prodiFilter,
                     ]
-                ],
-                'statistics' => $statistics,
-                'filters' => [
-                    'academic_years' => $filterOptions['academic_years'],
-                    'placements' => $filterOptions['placements'],
-                    'semesters' => $filterOptions['semesters'],
-                    'current_academic_year' => $academicYearFilter,
-                    'current_placement' => $placementFilter,
-                    'current_semester' => $semesterFilter,
-                ]
-            ];
-        });
-    }
+                ];
+            });
+        }
 
-    /**
-     * Get paginated students data from database
-     */
-    private function getPaginatedStudents(
-        string $academicYear, 
-        string $placement, 
-        string $semester, 
-        ?string $search, // Allow null
-        int $perPage,
-        int $page
-    ): LengthAwarePaginator {
-        // Ensure search is not null
-        $search = $search ?? '';
-        
-        $query = Registration::with(['student'])
-            ->when($academicYear !== 'all', function ($q) use ($academicYear) {
-                return $q->where('tahun_akademik', $academicYear);
-            })
-            ->when($placement !== 'all', function ($q) use ($placement) {
-                return $q->where('lokasi', $placement);
-            })
-            ->when($semester !== 'all', function ($q) use ($semester) {
-                return $q->where('semester', $semester);
-            })
-            ->when(!empty($search), function ($q) use ($search) {
-                return $q->where(function ($query) use ($search) {
-                    $query->where('nim', 'like', "%{$search}%")
-                          ->orWhereHas('student', function ($studentQuery) use ($search) {
-                              $studentQuery->where('nama_lengkap', 'like', "%{$search}%");
-                          })
-                          ->orWhere('lokasi', 'like', "%{$search}%");
-                });
-            })
-            ->latest();
+        /**
+         * Get paginated students data from database - Updated with Prodi filter
+         */
+        private function getPaginatedStudents(
+            string $academicYear, 
+            string $placement, 
+            string $semester,
+            string $prodi, 
+            ?string $search,
+            int $perPage,
+            int $page
+        ): LengthAwarePaginator {
+            $search = $search ?? '';
+            
+            $query = Registration::with(['student'])
+                ->when($academicYear !== 'all', function ($q) use ($academicYear) {
+                    return $q->where('tahun_akademik', $academicYear);
+                })
+                ->when($placement !== 'all', function ($q) use ($placement) {
+                    return $q->where('lokasi', $placement);
+                })
+                ->when($semester !== 'all', function ($q) use ($semester) {
+                    return $q->where('semester', $semester);
+                })
+                ->when($prodi !== 'all', function ($q) use ($prodi) {
+                    return $q->where('id_prodi', $prodi);
+                })
+                ->when(!empty($search), function ($q) use ($search) {
+                    return $q->where(function ($query) use ($search) {
+                        $query->where('nim', 'like', "%{$search}%")
+                            ->orWhereHas('student', function ($studentQuery) use ($search) {
+                                $studentQuery->where('nama_lengkap', 'like', "%{$search}%");
+                            })
+                            ->orWhere('lokasi', 'like', "%{$search}%");
+                    });
+                })
+                ->latest();
 
-        $paginated = $query->paginate($perPage, ['*'], 'page', $page);
+            $paginated = $query->paginate($perPage, ['*'], 'page', $page);
 
-        // Transform the data
-        $paginated->getCollection()->transform(function ($registration) {
-            return [
-                'id' => $registration->id,
-                'nim' => $registration->nim,
-                'name' => $registration->student?->nama_lengkap ?? 'Unknown',
-                'study_program' => $this->getStudyProgramName($registration->id_prodi),
-                'academic_year' => $registration->tahun_akademik,
-                'semester' => $registration->semester,
-                'activity_type' => $registration->jenis_kegiatan,
-                'placement' => $registration->lokasi,
-                'location' => $this->getLocationFromPlacement($registration->lokasi),
-                'phone' => $registration->no_hp,
-                'status' => $this->determineStatus($registration),
-                'payment_status' => !empty($registration->bukti_bayar) ? 'Paid' : 'Unpaid',
-                'report_status' => !empty($registration->laporan) ? 'Submitted' : 'Not Submitted',
-                'registered_at' => $registration->created_at?->format('Y-m-d'),
-                'score' => $registration->nilai,
-                'gender' => $this->getGenderFromStudent($registration),
-            ];
-        });
-
-        return $paginated;
-    }
-
-    /**
-     * Get all filtered students data for statistics (without pagination)
-     */
-    private function getFilteredStudents(
-        string $academicYear, 
-        string $placement, 
-        string $semester, 
-        ?string $search // Allow null
-    ): array {
-        // Ensure search is not null
-        $search = $search ?? '';
-        
-        $query = Registration::with(['student'])
-            ->when($academicYear !== 'all', function ($q) use ($academicYear) {
-                return $q->where('tahun_akademik', $academicYear);
-            })
-            ->when($placement !== 'all', function ($q) use ($placement) {
-                return $q->where('lokasi', $placement);
-            })
-            ->when($semester !== 'all', function ($q) use ($semester) {
-                return $q->where('semester', $semester);
-            })
-            ->when(!empty($search), function ($q) use ($search) {
-                return $q->where(function ($query) use ($search) {
-                    $query->where('nim', 'like', "%{$search}%")
-                          ->orWhereHas('student', function ($studentQuery) use ($search) {
-                              $studentQuery->where('nama_lengkap', 'like', "%{$search}%");
-                          })
-                          ->orWhere('lokasi', 'like', "%{$search}%");
-                });
+            // Transform the data
+            $paginated->getCollection()->transform(function ($registration) {
+                return [
+                    'id' => $registration->id,
+                    'nim' => $registration->nim,
+                    'name' => $registration->student?->nama_lengkap ?? 'Unknown',
+                    'study_program' => $this->getStudyProgramName($registration->id_prodi),
+                    'academic_year' => $registration->tahun_akademik,
+                    'semester' => $registration->semester,
+                    'activity_type' => $registration->jenis_kegiatan,
+                    'placement' => $registration->lokasi,
+                    'location' => $this->getLocationFromPlacement($registration->lokasi),
+                    'phone' => $registration->no_hp,
+                    'status' => $this->determineStatus($registration),
+                    'payment_status' => !empty($registration->bukti_bayar) ? 'Paid' : 'Unpaid',
+                    'report_status' => !empty($registration->laporan) ? 'Submitted' : 'Not Submitted',
+                    'registered_at' => $registration->created_at?->format('Y-m-d'),
+                    'score' => $registration->nilai,
+                    'gender' => $this->getGenderFromStudent($registration),
+                ];
             });
 
-        return $query->get()->map(function ($registration) {
-            return [
-                'id' => $registration->id,
-                'nim' => $registration->nim,
-                'name' => $registration->student?->nama_lengkap ?? 'Unknown',
-                'study_program' => $this->getStudyProgramName($registration->id_prodi),
-                'academic_year' => $registration->tahun_akademik,
-                'semester' => $registration->semester,
-                'activity_type' => $registration->jenis_kegiatan,
-                'placement' => $registration->lokasi,
-                'location' => $this->getLocationFromPlacement($registration->lokasi),
-                'phone' => $registration->no_hp,
-                'status' => $this->determineStatus($registration),
-                'payment_status' => !empty($registration->bukti_bayar) ? 'Paid' : 'Unpaid',
-                'report_status' => !empty($registration->laporan) ? 'Submitted' : 'Not Submitted',
-                'registered_at' => $registration->created_at?->format('Y-m-d'),
-                'score' => $registration->nilai,
-                'gender' => $this->getGenderFromStudent($registration),
-            ];
-        })->toArray();
-    }
+            return $paginated;
+        }
 
+        /**
+         * Get all filtered students data for statistics - Updated with Prodi filter
+         */
+        private function getFilteredStudents(
+            string $academicYear, 
+            string $placement, 
+            string $semester,
+            string $prodi,
+            ?string $search
+        ): array {
+            $search = $search ?? '';
+            
+            $query = Registration::with(['student'])
+                ->when($academicYear !== 'all', function ($q) use ($academicYear) {
+                    return $q->where('tahun_akademik', $academicYear);
+                })
+                ->when($placement !== 'all', function ($q) use ($placement) {
+                    return $q->where('lokasi', $placement);
+                })
+                ->when($semester !== 'all', function ($q) use ($semester) {
+                    return $q->where('semester', $semester);
+                })
+                ->when($prodi !== 'all', function ($q) use ($prodi) {
+                    return $q->where('id_prodi', $prodi);
+                })
+                ->when(!empty($search), function ($q) use ($search) {
+                    return $q->where(function ($query) use ($search) {
+                        $query->where('nim', 'like', "%{$search}%")
+                            ->orWhereHas('student', function ($studentQuery) use ($search) {
+                                $studentQuery->where('nama_lengkap', 'like', "%{$search}%");
+                            })
+                            ->orWhere('lokasi', 'like', "%{$search}%");
+                    });
+                });
+
+            return $query->get()->map(function ($registration) {
+                return [
+                    'id' => $registration->id,
+                    'nim' => $registration->nim,
+                    'name' => $registration->student?->nama_lengkap ?? 'Unknown',
+                    'study_program' => $this->getStudyProgramName($registration->id_prodi),
+                    'academic_year' => $registration->tahun_akademik,
+                    'semester' => $registration->semester,
+                    'activity_type' => $registration->jenis_kegiatan,
+                    'placement' => $registration->lokasi,
+                    'location' => $this->getLocationFromPlacement($registration->lokasi),
+                    'phone' => $registration->no_hp,
+                    'status' => $this->determineStatus($registration),
+                    'payment_status' => !empty($registration->bukti_bayar) ? 'Paid' : 'Unpaid',
+                    'report_status' => !empty($registration->laporan) ? 'Submitted' : 'Not Submitted',
+                    'registered_at' => $registration->created_at?->format('Y-m-d'),
+                    'score' => $registration->nilai,
+                    'gender' => $this->getGenderFromStudent($registration),
+                ];
+            })->toArray();
+        }
+
+        /**
+         * Get filter options from database - Updated with Prodi
+         */
+        private function getFilterOptions(): array
+        {
+            return [
+                'academic_years' => $this->getAcademicYearOptions(),
+                'placements' => $this->getPlacementOptions(),
+                'semesters' => $this->getSemesterOptions(),
+                'prodis' => $this->getProdiOptions(), // Tambah prodi options
+            ];
+        }
+
+        /**
+         * Get prodi options from database (cached)
+         */
+        private function getProdiOptions(): array
+        {
+            return Cache::remember(self::CACHE_PREFIX . 'prodis', self::CACHE_TTL * 4, function () {
+                $prodis = DB::table('prodi')
+                    ->select('id_prodi', 'nama_prodi')
+                    ->where('status', 'A') // Hanya yang aktif
+                    ->orderBy('nama_prodi')
+                    ->get();
+
+                $prodiOptions = $prodis->map(function ($prodi) {
+                    return [
+                        'value' => $prodi->id_prodi,
+                        'label' => $prodi->nama_prodi
+                    ];
+                })->toArray();
+
+                // Tambahkan option "Semua Program Studi" di awal
+                array_unshift($prodiOptions, [
+                    'value' => 'all',
+                    'label' => 'Semua Program Studi'
+                ]);
+
+                return $prodiOptions;
+            });
+        }
+   
     /**
      * Calculate dashboard statistics from filtered data
      */
@@ -220,17 +275,6 @@ class DashboardService
         ];
     }
 
-    /**
-     * Get filter options from database
-     */
-    private function getFilterOptions(): array
-    {
-        return [
-            'academic_years' => $this->getAcademicYearOptions(),
-            'placements' => $this->getPlacementOptions(),
-            'semesters' => $this->getSemesterOptions(),
-        ];
-    }
 
     /**
      * Get academic year options from database (cached)
@@ -298,26 +342,45 @@ class DashboardService
             return 'Awaiting Payment';
         }
     }
+/**
+     * Get study programs from database
+     */
+    private function getStudyPrograms(): array
+    {
+            // Ambil data dari tabel prodi
+            $prodis = DB::table('prodi')
+                ->select('id_prodi', 'nama_prodi')
+                ->where('status', 'A') // Hanya yang aktif
+                ->orderBy('nama_prodi')
+                ->get();
+
+            // Transform ke format yang dibutuhkan
+            $prodiOptions = $prodis->map(function ($prodi) {
+                return [
+                    'value' => $prodi->id_prodi,
+                    'label' => $prodi->nama_prodi
+                ];
+            })->toArray();
+
+            // Tambahkan option "Semua Program Studi" di awal
+            array_unshift($prodiOptions, [
+                'value' => 'all',
+                'label' => 'Semua Program Studi'
+            ]);
+
+            return $prodiOptions;
+    }
 
     /**
-     * Helper method to get study program name
+     * Get study program name by ID from database
      */
     private function getStudyProgramName($prodiId): string
     {
-        $prodiMapping = [
-            1 => 'Pendidikan Bahasa Indonesia',
-            2 => 'Pendidikan Matematika',
-            3 => 'Pendidikan Fisika',
-            4 => 'Pendidikan Biologi',
-            5 => 'Pendidikan Kimia',
-            6 => 'Pendidikan Bahasa Inggris',
-            7 => 'Pendidikan Sejarah',
-            8 => 'Pendidikan Geografi',
-            9 => 'Pendidikan Olahraga',
-            10 => 'Pendidikan Seni',
-        ];
+            $prodi = DB::table('prodi')
+                ->where('id_prodi', $prodiId)
+                ->first();
 
-        return $prodiMapping[$prodiId] ?? 'Program Studi Tidak Dikenal';
+            return $prodi ? $prodi->nama_prodi : 'Program Studi Tidak Dikenal';
     }
 
     /**

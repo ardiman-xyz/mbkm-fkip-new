@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\DashboardService;
+use App\Services\RegistrantService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -10,7 +11,8 @@ use Inertia\Response;
 class DashboardController extends Controller
 {
     public function __construct(
-        private DashboardService $dashboardService
+        private DashboardService $dashboardService,
+        private RegistrantService $registrantService
     ) {}
 
     /**
@@ -19,6 +21,7 @@ class DashboardController extends Controller
     public function index(Request $request): Response
     {
         $data = $this->dashboardService->getDashboardData($request);
+
 
         return Inertia::render('dashboard', $data);
     }

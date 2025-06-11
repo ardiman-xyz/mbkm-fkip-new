@@ -35,7 +35,7 @@ class Registration extends Model
      */
     public function logbooks(): HasMany
     {
-        return $this->hasMany(Logbook::class, 'unit_pendaftar_id', 'id');
+        return $this->hasMany(Logbook::class, 'id_pendaftar', 'id');
     }
 
     /**

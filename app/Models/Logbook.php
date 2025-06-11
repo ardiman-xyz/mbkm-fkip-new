@@ -16,8 +16,6 @@ class Logbook extends Model
 
 
     protected $casts = [
-        'tgl_kegiatan' => 'date',
-        'date_created' => 'datetime',
         'minggu' => 'integer'
     ];
 
@@ -27,7 +25,7 @@ class Logbook extends Model
      */
     public function registration(): BelongsTo
     {
-        return $this->belongsTo(Registration::class, 'unit_pendaftar_id', 'id');
+        return $this->belongsTo(Registration::class, 'id_pendaftar', 'id');
     }
 
     /**
@@ -110,7 +108,7 @@ class Logbook extends Model
      */
     public function scopeByRegistration($query, $registrationId)
     {
-        return $query->where('unit_pendaftar_id', $registrationId);
+        return $query->where('id_pendaftar', $registrationId);
     }
 
     /**
