@@ -3,11 +3,12 @@
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LogbookController;
 use App\Http\Controllers\RegistrantController;
+use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
-    return Inertia::render('welcome');
+    return Redirect("/login");
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
