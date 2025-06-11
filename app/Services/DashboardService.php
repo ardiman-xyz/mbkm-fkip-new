@@ -228,7 +228,6 @@ class DashboardService
             return Cache::remember(self::CACHE_PREFIX . 'prodis', self::CACHE_TTL * 4, function () {
                 $prodis = DB::table('prodi')
                     ->select('id_prodi', 'nama_prodi')
-                    ->where('status', 'A') // Hanya yang aktif
                     ->orderBy('nama_prodi')
                     ->get();
 

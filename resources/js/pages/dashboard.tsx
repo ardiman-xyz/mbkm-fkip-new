@@ -6,7 +6,7 @@ import { useState } from 'react';
 // Import our custom components
 import { usePagination } from '@/hooks/use-pagination';
 import DashboardFilters from './_components/DashboardFilters';
-import DashboardHeader from './_components/DashboardHeader';
+import ExportSection from './_components/ExportSection';
 import StatisticsCards from './_components/StatisticsCards';
 import StudentsTable from './_components/StudentsTable';
 
@@ -28,6 +28,7 @@ interface Student {
     placement: string;
     location: string;
     phone: string;
+    gender: string;
     status: string;
     payment_status: string;
     report_status: string;
@@ -77,8 +78,6 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ students, statistics, filters }: DashboardProps) {
-    console.info(filters);
-
     const [searchTerm, setSearchTerm] = useState('');
 
     const { isLoading, handlePageChange, handlePerPageChange, handleFilterChange } = usePagination({
@@ -127,8 +126,25 @@ export default function Dashboard({ students, statistics, filters }: DashboardPr
             <Head title="Dashboard MBKM FKIP" />
 
             <div className="flex h-full flex-1 flex-col gap-6 p-6">
-                {/* Header Component */}
-                <DashboardHeader isLoading={isLoading} onRefresh={handleRefresh} />
+                {/* Header with Export */}
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight">Dashboard MBKM FKIP</h1>
+                        <p className="text-muted-foreground">Kelola dan pantau data mahasiswa peserta MBKM</p>
+                    </div>
+                    <ExportSection
+                        students={students.data}
+                        statistics={statistics}
+                        filters={{
+                            current_academic_year: filters.current_academic_year,
+                            current_semester: filters.current_semester,
+                            current_prodi: filters.current_prodi,
+                            current_placement: filters.current_placement,
+                            searchQuery: searchTerm,
+                        }}
+                        className="flex-shrink-0"
+                    />
+                </div>
 
                 {/* Statistics Cards Component */}
                 <StatisticsCards statistics={statistics} />
